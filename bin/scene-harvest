@@ -1,0 +1,10 @@
+#!/usr/bin/env python
+"""Launcher for the scene-harvest command when installed through Rez.
+
+"""
+
+import sys
+
+from scene_harvest import cli
+
+sys.exit(cli.main())
