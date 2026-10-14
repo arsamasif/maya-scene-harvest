@@ -1,84 +1,43 @@
 # scene_harvest
 
-Point it at a folder of Maya (or USD) scenes and it opens each one in the
-background, pulls out what's in it, and saves the results as tables you can
-open in pandas. Polycounts, hierarchy, materials, skinning, and which
-textures and references are missing.
+Opens a folder of Maya (or USD) scenes in the background and saves what's
+inside them as tables you can load in pandas.
 
 ![The app after harvesting five Maya scenes](docs/app_charts.png)
 
-Scenes are opened in `mayapy` worker processes, a few at a time. If a scene
-crashes, the others carry on. If you run it again later, scenes that haven't
-changed are skipped, and scenes deleted from the folder are dropped from the
-results.
+I wanted to answer simple questions about a scene library without opening
+every file by hand. How heavy are these assets, which textures are missing,
+how many influences do the skins use. So this opens each scene in `mayapy`,
+pulls out meshes, hierarchy, materials, skinning and file dependencies, and
+writes it all to Parquet.
 
 ## Running it
 
-On Windows, double-click `launch_ui.bat`. The first time it sets up its own
-Python environment (needs a 64-bit Python 3.10 to 3.13 installed), after
-that it just opens the window. On Linux or macOS use `./launch_ui.sh`.
+On Windows, double-click `launch_ui.bat`. The first run builds its own
+Python environment, which needs a 64-bit Python 3.10 to 3.13 installed.
+After that it just opens the window. On Linux or macOS use `./launch_ui.sh`.
 
-In the window:
+Pick the scene folder and a results folder, check the mayapy path (it finds
+installed Maya versions itself) and press Run. The Status, Report and Charts
+tabs fill in when it's done.
 
-1. Pick the folder of scenes and a folder for the results.
-2. Check the mayapy path. It finds installed Maya versions on its own.
-3. Press Run.
-
-When it's done, the Status, Report and Charts tabs fill in. You can also
-open an old results folder to look at it again.
-
-![Status tab](docs/app_status.png)
-
-![Report tab](docs/app_report.png)
-
-## Command line
-
-Everything the app does also works from a terminal:
+From a terminal it's the same thing:
 
 ```bash
 pip install -e ".[ui]"
 
 scene-harvest run D:/library -o D:/harvest -w 4 --mayapy "C:/Program Files/Autodesk/Maya2027/bin/mayapy.exe"
-scene-harvest status -o D:/harvest
 scene-harvest report -o D:/harvest
-scene-harvest charts -o D:/harvest
 ```
 
-`--force` harvests everything again, `--skip-failed` leaves out scenes that
-failed last time. You can set `SCENE_HARVEST_MAYAPY` instead of passing
-`--mayapy` each time. For USD scenes install `.[ui,usd]` too.
-
-`scene-harvest plan` shows what a run would do without opening anything.
-`--timeout` kills a batch that hangs, `--host maya` or `--host usd` limits
-the run to one kind of scene, and `-f json` writes JSON lines instead of
-Parquet. `--rehash` hashes every scene even when its size and date match.
-
-## Charts
-
-![Triangles per scene](docs/triangles_per_scene.png)
-
-![Dependencies by kind](docs/dependencies.png)
-
-![Triangles per mesh](docs/triangle_distribution.png)
-
-![Harvest time per scene](docs/harvest_time.png)
-
-There's also a chart of the max skin influences per vertex, with a limit of 4
-marked. These come from a small test library of five scenes, so the numbers
-are tiny.
+`scene-harvest plan` shows what a run would do without opening anything,
+and `--force` harvests everything again. You can set `SCENE_HARVEST_MAYAPY`
+instead of passing `--mayapy`. For USD scenes install `.[ui,usd]`.
 
 ## The data
 
-Results go into `<output>/dataset/` as Parquet files:
-
-| Table | What's in it |
-|---|---|
-| `meshes` | vertex, face and triangle counts, UV sets, bounds, non-manifold edges |
-| `nodes` | every node in the scene with its type, parent and depth |
-| `materials` | which material is on which mesh |
-| `dependencies` | textures, references, caches, and whether each file exists (handles `<UDIM>` and frame numbers) |
-| `skeletons`, `skins` | joints, influences per skin, max influences per vertex |
-| `scenes` | one row per scene: path, size, how long it took |
+Results land in `<output>/dataset/` as one Parquet table each for scenes,
+nodes, meshes, materials, dependencies, skeletons and skins.
 
 ```python
 from scene_harvest import writers
@@ -87,51 +46,27 @@ meshes = writers.read_table("D:/harvest", "meshes")
 meshes.groupby("scene_id")["triangle_count"].sum()
 ```
 
-`notebooks/analysis.ipynb` has a few examples to start from.
+`notebooks/analysis.ipynb` has a few more examples.
 
-### Using it as a training dataset
-
-- Every row carries a `scene_id`, a hash of the scene's absolute path, so
-  it stays the same across runs and joins all the tables.
-- The `scenes` table records a SHA-256 of each scene file, so you can tell
-  exactly which version of a scene a row came from.
-- The dataset only holds scenes whose last harvest finished. A failed or
-  half-done scene is left out, never written as partial rows.
-- Bumping a collector's `version` re-harvests every scene of its host on the
-  next run, so old and new extraction code never mix in one dataset.
-- A rerun matches the library on disk: changed scenes are redone and
-  deleted ones are dropped.
+I also wanted the output to be safe to train on. Every row has a `scene_id`
+built from the scene's absolute path, so it's the same on every run and
+joins all the tables. The `scenes` table keeps a SHA-256 of each file, so
+you know which version of a scene a row came from. Only scenes whose harvest
+finished make it into the dataset; a crashed or half-done scene is left out
+rather than written as partial rows. If you bump a collector's `version`,
+the next run re-harvests every scene for that host, so old and new
+extraction code don't end up mixed. Reruns only redo scenes that changed,
+and scenes deleted from the folder are dropped.
 
 ## How it works
 
-The tool finds the scenes and splits them into batches, then starts a
-`mayapy` process per batch. Each worker saves one small file per scene, then
-writes a marker saying the scene is done. A scene only counts as done once
-the marker exists, so a crash loses at most the scene that was open. A
-manifest keeps a hash of every scene, which is how reruns know what changed.
+Scenes are split into batches and each batch runs in its own `mayapy`
+process, which writes one small file per scene plus a "done" marker, so a
+crash costs at most the scene that was open. The main process then merges
+everything into Parquet, since stock Maya doesn't ship pyarrow.
 
-Stock Maya doesn't have pyarrow, so the workers write plain JSON lines and
-the main process turns everything into Parquet at the end.
-
-The app doesn't have its own copy of this logic. It runs the same
-`scene-harvest run` command in the background and reads the results.
-
-To collect something new, write a collector class and list its module in
-`SCENE_HARVEST_PLUGINS`:
-
-```python
-from scene_harvest import registry
-
-
-@registry.register
-class LightCollector(registry.Collector):
-    name = "lights"
-    host = "maya"
-    version = 1
-
-    def collect(self, context):
-        ...
-```
+To collect something new, subclass `registry.Collector` and list its module
+in `SCENE_HARVEST_PLUGINS`.
 
 ## Tests
 
@@ -140,5 +75,6 @@ python -m pytest     # everything except the Maya collectors
 mayapy -m pytest     # adds the Maya collector tests
 ```
 
-Some tests run a real harvest of generated USD scenes, including one that
-clicks Run in the app.
+## License
+
+MIT, see `LICENSE`.
