@@ -47,11 +47,17 @@ def read_json(path, default=None):
     Returns:
         object: Parsed data or `default`.
 
+    Raises:
+        ValueError: If the file is not valid JSON, naming the file.
+
     """
     if not os.path.isfile(path):
         return default
     with open(path, "r", encoding="utf-8") as handle:
-        return json.load(handle)
+        try:
+            return json.load(handle)
+        except ValueError as error:
+            raise ValueError("Corrupt JSON file {0}: {1}".format(path, error)) from error
 
 
 def to_arrow(table, rows):

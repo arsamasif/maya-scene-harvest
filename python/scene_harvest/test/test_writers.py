@@ -123,6 +123,13 @@ def test_json_document_helpers(tmp_path):
     assert writers.read_json(path) == {"a": [1, 2], "b": 1}
 
 
+def test_corrupt_json_error_names_the_file(tmp_path):
+    path = tmp_path / "manifest.json"
+    path.write_text('{"version": 1, "scenes": ')
+    with pytest.raises(ValueError, match="Corrupt JSON file .*manifest.json"):
+        writers.read_json(str(path))
+
+
 def test_shards_fall_back_to_json_without_pyarrow(tmp_path, monkeypatch):
     # Stock mayapy has no pyarrow; the worker must still write its shard,
     # and the orchestrator must still build Parquet from it.
