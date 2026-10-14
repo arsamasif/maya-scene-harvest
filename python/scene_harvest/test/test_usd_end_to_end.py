@@ -146,3 +146,8 @@ def test_cli_errors(tmp_path, capsys):
     assert cli.main(["plan", str(tmp_path / "nope"), "-o", str(tmp_path / "out")]) == 2
     assert "Scene folder not found" in capsys.readouterr().err
     assert cli.main(["status", "-o", str(tmp_path / "empty")]) == 0
+
+
+def test_cli_report_on_an_empty_output(tmp_path, capsys):
+    assert cli.main(["report", "-o", str(tmp_path)]) == 1
+    assert "Nothing to report" in capsys.readouterr().out

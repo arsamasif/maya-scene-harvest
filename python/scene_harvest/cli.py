@@ -158,10 +158,14 @@ def cmd_report(args):
         args (argparse.Namespace): Parsed arguments.
 
     Returns:
-        int: Exit code.
+        int: Exit code, 1 when nothing was harvested yet.
 
     """
-    print(report.render(report.summarize(args.output)))
+    summary = report.summarize(args.output)
+    if not summary["scene_count"]:
+        print("Nothing to report yet; run a harvest first.")
+        return 1
+    print(report.render(summary))
     return 0
 
 
