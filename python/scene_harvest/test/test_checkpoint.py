@@ -178,3 +178,21 @@ def test_unreachable_root_keeps_the_manifest(fake_scenes, output_dir):
     os.rename(fake_scenes + "_unmounted", fake_scenes)
     assert planner.plan(fake_scenes, output_dir)["scheduled"] == 0
     assert len(_statuses(output_dir)) == 4
+
+
+def test_timed_out_batch_says_so(fake_scenes, output_dir):
+    hanging = os.path.join(fake_scenes, "props", "c_crate.ma")
+    fake_worker.write_scene(hanging, ["HANG"])
+    planner.plan(fake_scenes, output_dir, batch_size=10)
+    runner.run(output_dir, mayapy=sys.executable, worker_module=FAKE_WORKER, timeout=3, echo=lambda _: None)
+    error = manifest_mod.Manifest.load(output_dir).get(planner.fingerprint(hanging)["scene_id"])["error"]
+    assert error.startswith("Worker timed out after 3s, see ")
+
+
+def test_missing_mayapy_says_so(fake_scenes, output_dir, tmp_path):
+    planner.plan(fake_scenes, output_dir)
+    mayapy = str(tmp_path / "no-such-mayapy")
+    totals = runner.run(output_dir, mayapy=mayapy, worker_module=FAKE_WORKER, echo=lambda _: None)
+    assert totals[constants.STATUS_FAILED] == 4
+    for entry in manifest_mod.Manifest.load(output_dir).entries.values():
+        assert entry["error"].startswith("Could not start worker {0!r}".format(mayapy))

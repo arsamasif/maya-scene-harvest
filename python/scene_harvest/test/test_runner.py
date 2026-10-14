@@ -55,7 +55,7 @@ def test_run_batch_process_reports_missing_interpreter(tmp_path):
     }
     assert runner.run_batch_process(job)["returncode"] == -2
     with open(job["log_path"], encoding="utf-8") as handle:
-        assert "could not start worker" in handle.read()
+        assert "Could not start worker" in handle.read()
 
 
 def test_load_batch_validates(tmp_path):

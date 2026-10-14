@@ -6,12 +6,14 @@ without Maya. The scene files are plain text:
 
 - a line `CRASH` kills the interpreter mid-batch, like a mayapy segfault;
 - a line `BROKEN` makes the scene fail with an exception;
+- a line `HANG` blocks forever, like a scene stuck in a dialog;
 - anything else is harvested, with one face per line of text.
 
 """
 
 import os
 import sys
+import time
 
 from scene_harvest import registry
 from scene_harvest import schema
@@ -46,6 +48,8 @@ class FakeAdapter(object):
         if "CRASH" in lines:
             sys.stdout.flush()
             os._exit(CRASH_EXIT_CODE)
+        while "HANG" in lines:
+            time.sleep(1)
         if "BROKEN" in lines:
             raise RuntimeError("Scene is broken: {0}".format(path))
         return lines

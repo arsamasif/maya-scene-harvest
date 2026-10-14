@@ -129,9 +129,11 @@ def run_batch_process(job):
         job (dict): batch_path, command, log_path and timeout.
 
     Returns:
-        dict: The job plus returncode.
+        dict: The job plus returncode and reason, which says why the
+            worker stopped when it never got to exit on its own.
 
     """
+    reason = ""
     os.makedirs(os.path.dirname(job["log_path"]), exist_ok=True)
     with open(job["log_path"], "w", encoding="utf-8") as log:
         try:
@@ -145,17 +147,20 @@ def run_batch_process(job):
             )
             returncode = completed.returncode
         except subprocess.TimeoutExpired:
-            log.write("\nscene_harvest: worker timed out after {0}s\n".format(job["timeout"]))
+            reason = "Worker timed out after {0}s".format(job["timeout"])
+            log.write("\nscene_harvest: {0}\n".format(reason))
             returncode = -1
         except OSError as error:
-            log.write("\nscene_harvest: could not start worker: {0}\n".format(error))
+            reason = "Could not start worker {0!r}: {1}".format(job["command"][0], error)
+            log.write("\nscene_harvest: {0}\n".format(reason))
             returncode = -2
     result = dict(job)
     result["returncode"] = returncode
+    result["reason"] = reason
     return result
 
 
-def collect_batch(manifest, batch, returncode, log_path):
+def collect_batch(manifest, batch, returncode, log_path, reason=""):
     """Fold the result markers of a finished batch into the manifest.
 
     Args:
@@ -163,19 +168,19 @@ def collect_batch(manifest, batch, returncode, log_path):
         batch (dict): Batch description.
         returncode (int): Exit code of the worker.
         log_path (str): Worker log, quoted in error messages.
+        reason (str): Why the worker stopped, when the runner knows more
+            than the exit code (timeout, interpreter not found).
 
     Returns:
         dict: {"done": n, "failed": n}.
 
     """
     counts = {constants.STATUS_DONE: 0, constants.STATUS_FAILED: 0}
+    reason = reason or "Worker exited with code {0} before finishing".format(returncode)
     for scene in batch["scenes"]:
         result = writers.read_json(manifest_mod.result_path(batch["output_dir"], scene["scene_id"]))
         if result is None:
-            manifest.mark_failed(
-                scene["scene_id"],
-                "Worker exited with code {0} before finishing, see {1}".format(returncode, log_path),
-            )
+            manifest.mark_failed(scene["scene_id"], "{0}, see {1}".format(reason, log_path))
             counts[constants.STATUS_FAILED] += 1
             continue
         manifest.apply_result(result)
@@ -235,7 +240,9 @@ def run(output_dir, workers=constants.DEFAULT_WORKERS, mayapy=None, python=None,
         with mp_pool.ThreadPool(processes=min(workers, len(jobs))) as pool:
             for finished in pool.imap_unordered(run_batch_process, jobs):
                 batch = batches[finished["batch_path"]]
-                counts = collect_batch(manifest, batch, finished["returncode"], finished["log_path"])
+                counts = collect_batch(
+                    manifest, batch, finished["returncode"], finished["log_path"], finished["reason"]
+                )
                 manifest.save()
                 for status, count in counts.items():
                     totals[status] = totals.get(status, 0) + count
