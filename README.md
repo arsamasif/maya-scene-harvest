@@ -9,7 +9,8 @@ textures and references are missing.
 
 Scenes are opened in `mayapy` worker processes, a few at a time. If a scene
 crashes, the others carry on. If you run it again later, scenes that haven't
-changed are skipped.
+changed are skipped, and scenes deleted from the folder are dropped from the
+results.
 
 ## Running it
 

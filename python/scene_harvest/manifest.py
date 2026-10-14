@@ -179,6 +179,29 @@ class Manifest(object):
                 changed += 1
         return changed
 
+    def forget_missing(self, root):
+        """Drop the entries of scenes under a folder that no longer exist.
+
+        Only scenes below `root` are checked, so harvesting several folders
+        into one output folder keeps the others.
+
+        Args:
+            root (str): Scene folder being planned.
+
+        Returns:
+            list: Sorted ids of the dropped scenes.
+
+        """
+        prefix = os.path.join(os.path.normcase(os.path.abspath(root)), "")
+        gone = sorted(
+            scene_id for scene_id, entry in self.entries.items()
+            if os.path.normcase(entry.get("path", "")).startswith(prefix)
+            and not os.path.isfile(entry["path"])
+        )
+        for scene_id in gone:
+            del self.entries[scene_id]
+        return gone
+
     def ids_with_status(self, status):
         """Return the scene ids whose entry has a given status.
 

@@ -82,6 +82,8 @@ def _plan(args):
     )
     print(f"Planned {result['scheduled']} scene(s) in {len(result['batches'])} batch(es), "
           f"{result['skipped']} unchanged scene(s) skipped.")
+    if result["removed"]:
+        print(f"Dropped {result['removed']} scene(s) that were deleted from {args.root}.")
     return result
 
 

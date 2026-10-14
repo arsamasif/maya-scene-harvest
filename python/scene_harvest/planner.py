@@ -1,9 +1,10 @@
 """Job planner: find scenes, compare them with the manifest, cut batches.
 
 Planning is cheap and safe to repeat. It fingerprints every scene under a
-root folder, asks the manifest which ones need work, and writes one batch
-JSON file per worker invocation. Scenes are spread over batches by file
-size so no single worker is stuck with all the heavy files.
+root folder, asks the manifest which ones need work, drops scenes that were
+deleted from the folder, and writes one batch JSON file per worker
+invocation. Scenes are spread over batches by file size so no single worker
+is stuck with all the heavy files.
 
 Hashing large scenes is the slow part, so a scene whose size and mtime match
 the manifest reuses the stored hash unless `rehash` is set.
@@ -163,6 +164,12 @@ def plan(
         else:
             skipped += 1
 
+    # After discover, so an unreachable root never wipes the manifest.
+    removed = manifest.forget_missing(root)
+    for scene_id in removed:
+        # The shard holds a result marker that reconcile would pick up again.
+        shutil.rmtree(writers.shard_dir(output_dir, scene_id), ignore_errors=True)
+
     batch_dir = os.path.join(output_dir, constants.JOBS_DIR, BATCHES_DIR)
     shutil.rmtree(batch_dir, ignore_errors=True)
     batch_files = []
@@ -194,6 +201,7 @@ def plan(
         "format": fmt,
         "scheduled": sum(len(scenes) for scenes in scenes_by_host.values()),
         "skipped": skipped,
+        "removed": len(removed),
         "signatures": signatures,
         "batches": batch_files,
     }

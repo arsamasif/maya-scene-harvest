@@ -8,6 +8,8 @@ worker from fake_worker.py standing in for mayapy.
 import os
 import sys
 
+import pytest
+
 from scene_harvest import constants
 from scene_harvest import manifest as manifest_mod
 from scene_harvest import planner
@@ -152,3 +154,27 @@ def test_manifest_counts_and_reconcile_are_idempotent(fake_scenes, output_dir):
     manifest = manifest_mod.Manifest.load(output_dir)
     assert manifest.counts() == {constants.STATUS_DONE: 4}
     assert manifest.reconcile(output_dir) == 0
+
+
+def test_deleted_scene_leaves_the_dataset(fake_scenes, output_dir):
+    _harvest(fake_scenes, output_dir)
+    os.remove(os.path.join(fake_scenes, "props", "c_crate.ma"))
+
+    result, _ = _harvest(fake_scenes, output_dir)
+    assert result["removed"] == 1
+    assert "c_crate.ma" not in _statuses(output_dir)
+    assert sorted(writers.read_table(output_dir, "meshes")["face_count"]) == [1, 3, 4]
+    # Its old result marker must not bring it back on the next plan.
+    assert planner.plan(fake_scenes, output_dir)["removed"] == 0
+    assert "c_crate.ma" not in _statuses(output_dir)
+
+
+def test_unreachable_root_keeps_the_manifest(fake_scenes, output_dir):
+    _harvest(fake_scenes, output_dir)
+    os.rename(fake_scenes, fake_scenes + "_unmounted")
+    with pytest.raises(FileNotFoundError):
+        planner.plan(fake_scenes, output_dir)
+    assert len(writers.shard_files(output_dir, "meshes")) == 4
+    os.rename(fake_scenes + "_unmounted", fake_scenes)
+    assert planner.plan(fake_scenes, output_dir)["scheduled"] == 0
+    assert len(_statuses(output_dir)) == 4
