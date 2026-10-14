@@ -48,6 +48,11 @@ scene-harvest charts -o D:/harvest
 failed last time. You can set `SCENE_HARVEST_MAYAPY` instead of passing
 `--mayapy` each time. For USD scenes install `.[ui,usd]` too.
 
+`scene-harvest plan` shows what a run would do without opening anything.
+`--timeout` kills a batch that hangs, `--host maya` or `--host usd` limits
+the run to one kind of scene, and `-f json` writes JSON lines instead of
+Parquet. `--rehash` hashes every scene even when its size and date match.
+
 ## Charts
 
 ![Triangles per scene](docs/triangles_per_scene.png)
@@ -83,6 +88,19 @@ meshes.groupby("scene_id")["triangle_count"].sum()
 ```
 
 `notebooks/analysis.ipynb` has a few examples to start from.
+
+### Using it as a training dataset
+
+- Every row carries a `scene_id`, a hash of the scene's absolute path, so
+  it stays the same across runs and joins all the tables.
+- The `scenes` table records a SHA-256 of each scene file, so you can tell
+  exactly which version of a scene a row came from.
+- The dataset only holds scenes whose last harvest finished. A failed or
+  half-done scene is left out, never written as partial rows.
+- Bumping a collector's `version` re-harvests every scene of its host on the
+  next run, so old and new extraction code never mix in one dataset.
+- A rerun matches the library on disk: changed scenes are redone and
+  deleted ones are dropped.
 
 ## How it works
 
